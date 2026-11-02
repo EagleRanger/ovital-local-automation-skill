@@ -4,14 +4,28 @@ from pyproj import CRS,Geod,Transformer
 from shapely import normalize
 from shapely.geometry import LineString,Point,Polygon,box,shape,mapping
 from shapely.ops import transform,unary_union,split
+from .validation import finite_number
 
 def valid(geometry):
+    def coordinates(value):
+        if value.geom_type=='Polygon':
+            yield from value.exterior.coords
+            for ring in value.interiors:yield from ring.coords
+        elif hasattr(value,'geoms'):
+            for part in value.geoms:yield from coordinates(part)
+        else:yield from value.coords
+    for point in coordinates(geometry):
+        for coordinate in point:finite_number(coordinate,'geometry coordinate')
     if geometry.is_empty or not geometry.is_valid:raise ValueError('nonempty valid source geometry required; repairs must be explicit')
     return geometry
 
 def reproject(geometry,source_crs,target_crs):
+    valid(geometry)
     source=CRS.from_user_input(source_crs);target=CRS.from_user_input(target_crs)
-    return transform(Transformer.from_crs(source,target,always_xy=True).transform,geometry)
+    if source.is_geographic:
+        west,south,east,north=geometry.bounds
+        if not (-180<=west<=east<=180 and -90<=south<=north<=90):raise ValueError('source geographic coordinates outside longitude/latitude range')
+    return valid(transform(Transformer.from_crs(source,target,always_xy=True).transform,geometry))
 
 def require_metric(crs):
     value=CRS.from_user_input(crs)
@@ -26,7 +40,7 @@ def local_utm(geometry_wgs84):
 
 def buffer_m(geometry,distance, *, crs,join_style='mitre',cap_style='flat'):
     require_metric(crs);valid(geometry)
-    if not math.isfinite(distance):raise ValueError('finite distance required')
+    distance=finite_number(distance,'buffer distance')  # Negative polygon erosion remains legal.
     return valid(geometry.buffer(distance,join_style=join_style,cap_style=cap_style))
 
 def overlay(geometries, *, clip=None,subtract=None):
@@ -62,13 +76,14 @@ def replace_covered(old,new, *, coverage,crs):
 def close_road_pair(left,right, *, crs,max_cap_distance):
     """Close two explicitly paired boundaries, never a single arbitrary fragment."""
     require_metric(crs);valid(left);valid(right)
+    max_cap_distance=finite_number(max_cap_distance,'maximum road cap distance',positive=True)
     if left.geom_type!='LineString' or right.geom_type!='LineString' or not left.is_simple or not right.is_simple:raise ValueError('two simple LineStrings required')
     if left.intersects(right):raise ValueError('paired boundaries cross or touch; inspect junction before closure')
     a=list(left.coords);b=list(right.coords)
     distance=lambda p,q:math.hypot(p[0]-q[0],p[1]-q[1])
     if distance(a[0],b[-1])+distance(a[-1],b[0])<distance(a[0],b[0])+distance(a[-1],b[-1]):b.reverse()
     gaps=[distance(a[0],b[0]),distance(a[-1],b[-1])]
-    if max_cap_distance<=0 or max(gaps)>max_cap_distance:raise ValueError('end closure exceeds explicit allowed cap distance')
+    if max(gaps)>max_cap_distance:raise ValueError('end closure exceeds explicit allowed cap distance')
     result=Polygon(a+list(reversed(b)))
     valid(result)
     return result,dict(cap_lengths=gaps,source_boundaries_covered=result.boundary.covers(unary_union([left,right])))
@@ -76,8 +91,9 @@ def close_road_pair(left,right, *, crs,max_cap_distance):
 def extend_endpoint(line,boundary, *, start=False,max_distance,crs):
     """Straight ray in existing end direction, bounded to nearest intersection."""
     require_metric(crs);valid(line);valid(boundary)
+    max_distance=finite_number(max_distance,'maximum extension distance',positive=True)
     points=list(line.coords)
-    if len(points)<2 or max_distance<=0:raise ValueError('line and positive extension bound required')
+    if len(points)<2:raise ValueError('line and positive extension bound required')
     origin,inner=(points[0],points[1]) if start else (points[-1],points[-2])
     dx,dy=origin[0]-inner[0],origin[1]-inner[1];length=math.hypot(dx,dy)
     if length==0:raise ValueError('zero-length terminal segment')
@@ -95,7 +111,7 @@ def extend_endpoint(line,boundary, *, start=False,max_distance,crs):
     return LineString(points)
 
 def clip_side(polygon,divider,keep_point, *, crs):
-    require_metric(crs);valid(polygon);valid(divider)
+    require_metric(crs);valid(polygon);valid(divider);valid(keep_point)
     pieces=list(split(polygon,divider).geoms)
     selected=[g for g in pieces if g.covers(keep_point)]
     if len(pieces)<2 or len(selected)!=1:raise ValueError('divider must split range and keep point must identify exactly one side')
@@ -109,13 +125,15 @@ def asymmetric_corridor(line,profile, *, crs,miter_limit=3.,sample_step=None):
     """
     import numpy as np
     require_metric(crs);valid(line)
+    miter_limit=finite_number(miter_limit,'miter limit',minimum=1.)
+    if sample_step is not None:sample_step=finite_number(sample_step,'corridor sample step',positive=True)
     if line.geom_type!='LineString' or not line.is_simple or line.length<=0:raise ValueError('simple positive-length baseline required')
-    values=np.asarray(profile,dtype=float);length=line.length
+    values=np.asarray(profile,dtype=float);length=finite_number(line.length,'baseline length',positive=True)
     if values.ndim!=2 or values.shape[1]!=3 or len(values)<2 or not np.isfinite(values).all():raise ValueError('profile rows must be station,left,right')
     if values[0,0]!=0 or abs(values[-1,0]-length)>1e-7 or not (np.diff(values[:,0])>0).all() or (values[:,1:]<0).any():raise ValueError('profile must span entire baseline monotonically with nonnegative widths')
-    if miter_limit<1:raise ValueError('miter limit must be at least one')
     original=np.asarray(line.coords);lens=np.hypot(*np.diff(original,axis=0).T)
-    extra=np.arange(0,length,sample_step) if sample_step is not None and sample_step>0 else []
+    if sample_step is not None and finite_number(length/sample_step,'corridor sample count',positive=True)>1000000:raise ValueError('corridor sampling exceeds one-million-station safety bound')
+    extra=np.arange(0,length,sample_step) if sample_step is not None else []
     stations=np.unique(np.r_[0,np.cumsum(lens),values[:,0],extra]);q=np.array([line.interpolate(float(s)).coords[0] for s in stations]);vec=np.diff(q,axis=0);sizes=np.hypot(*vec.T)
     if sizes.min()<1e-9:raise ValueError('duplicate/zero-length baseline segment')
     normal=np.column_stack((-vec[:,1]/sizes,vec[:,0]/sizes))

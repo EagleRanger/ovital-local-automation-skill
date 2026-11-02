@@ -11,12 +11,16 @@ import json
 from pathlib import Path
 import sys
 
-def load(path):return json.loads(Path(path).read_text('utf-8-sig'))
+def _reject_json_constant(value):raise ValueError('non-standard JSON numeric constant rejected: '+value)
+def _finite_json_float(value):
+    from ovital.validation import finite_number
+    return finite_number(float(value),'JSON floating-point number')
+def load(path):return json.loads(Path(path).read_text('utf-8-sig'),parse_constant=_reject_json_constant,parse_float=_finite_json_float)
 def save(path,value):
     path=Path(path)
     if path.exists():raise FileExistsError('refusing to overwrite existing output/receipt')
     path.parent.mkdir(parents=True,exist_ok=True)
-    with path.open('x',encoding='utf-8') as stream:json.dump(value,stream,ensure_ascii=False,indent=2)
+    with path.open('x',encoding='utf-8') as stream:json.dump(value,stream,ensure_ascii=False,indent=2,allow_nan=False)
 
 def calculate(plan):
     from shapely.geometry import shape,mapping
@@ -44,7 +48,7 @@ def native(plan,args):
     path=Path(args.receipt);save(path,result)
     def checkpoint():
         temp=path.with_suffix(path.suffix+'.tmp')
-        with temp.open('x',encoding='utf-8') as stream:json.dump(result,stream,ensure_ascii=False,indent=2)
+        with temp.open('x',encoding='utf-8') as stream:json.dump(result,stream,ensure_ascii=False,indent=2,allow_nan=False)
         temp.replace(path)
     kwargs={key:plan[key] for key in ('hwnd','expected_pid') if key in plan}
     with WinMessageTransport(allow_write=writing,**kwargs) as transport:

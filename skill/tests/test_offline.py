@@ -210,6 +210,36 @@ class KmlTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             path=Path(tmp)/'network.kml';path.write_text('<kml xmlns="http://www.opengis.net/kml/2.2"><NetworkLink/></kml>')
             with self.assertRaises(ValueError):kml.read(path)
+    def test_mixed_multigeometry_refuses_unsupported_child(self):
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'mixed.kml';path.write_text('<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><MultiGeometry><LineString><coordinates>0,0 1,1</coordinates></LineString><Model/></MultiGeometry></Placemark></kml>')
+            with self.assertRaisesRegex(ValueError,'unsupported KML geometry: Model'):kml.read(path)
+    def test_placemark_mixed_model_refuses_partial_import(self):
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'mixed.kml';path.write_text('<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><LineString><coordinates>0,0 1,1</coordinates></LineString><Model/></Placemark></kml>')
+            with self.assertRaises(ValueError):kml.read(path)
+    def test_stylemap_normal_highlight_and_definitions_roundtrip(self):
+        xml='<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Style id="line"><LineStyle><color>ff0000ff</color><width>2</width></LineStyle></Style><Style id="highlight"><LineStyle><color>ff00ff00</color><width>5</width></LineStyle></Style><StyleMap id="map"><Pair><key>normal</key><styleUrl>#line</styleUrl></Pair><Pair><key>highlight</key><styleUrl>#highlight</styleUrl></Pair></StyleMap><Placemark><styleUrl>#map</styleUrl><LineString><coordinates>0,0 1,1</coordinates></LineString></Placemark></Document></kml>'
+        with TemporaryDirectory() as tmp:
+            source=Path(tmp)/'source.kml';source.write_text(xml)
+            rows=kml.read(source);self.assertEqual(len(rows[0]['style_definitions']),3)
+            for suffix in ('.kml','.kmz'):
+                output=Path(tmp)/('out'+suffix);kml.write(output,rows);back=kml.read(output)
+                self.assertEqual(back[0]['style_url'],'#map');self.assertEqual(set(back[0]['style_definitions']),set(rows[0]['style_definitions']))
+    def test_missing_local_style_reference_refused_on_read(self):
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'missing.kml';path.write_text('<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><styleUrl>#missing</styleUrl><Point><coordinates>0,0</coordinates></Point></Placemark></kml>')
+            with self.assertRaisesRegex(ValueError,'unresolved local'):kml.read(path)
+    def test_missing_local_style_reference_refused_before_write(self):
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'missing.kml'
+            with self.assertRaisesRegex(ValueError,'unresolved local'):kml.write(path,[dict(style_url='#missing',geometry=mapping(Point(0,0)))])
+            self.assertFalse(path.exists())
+    def test_cyclic_stylemap_reference_refused(self):
+        xml='<kml xmlns="http://www.opengis.net/kml/2.2"><Document><StyleMap id="a"><Pair><key>normal</key><styleUrl>#b</styleUrl></Pair></StyleMap><StyleMap id="b"><Pair><key>normal</key><styleUrl>#a</styleUrl></Pair></StyleMap><Placemark><styleUrl>#a</styleUrl><Point><coordinates>0,0</coordinates></Point></Placemark></Document></kml>'
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'cycle.kml';path.write_text(xml)
+            with self.assertRaisesRegex(ValueError,'cyclic'):kml.read(path)
 
 class MapTransport:
     window=10;app_id=2
@@ -220,7 +250,7 @@ class MapTransport:
             result=I.MapInfo();result.level=10;result.maptype=99;result.real=0;result.real2=1;result.x=3.;result.y=45.;return 1,bytes(result)
         if cmd==20016:
             request=I.ScreenBounds.from_buffer_copy(data);assert request.request_type==1
-            result=I.ScreenBounds();result.real=1;return 1,bytes(result)
+            result=I.ScreenBounds();result.real=1;result.east=1.;result.north=1.;result.level=10;result.maptype=99;return 1,bytes(result)
         if cmd==20302:
             request=I.MapFile.from_buffer_copy(data[16:]);self.sent=request;assert request.sendreq==0
             result=I.MapFile.from_buffer_copy(bytes(request));result.id+=int(self.wrong_id);result.width=20;result.height=10;result.total=2;result.has=1 if self.missing else 2
@@ -269,5 +299,95 @@ class CliTests(unittest.TestCase):
     def test_write_requires_write_flag_before_connect(self):
         from types import SimpleNamespace
         with self.assertRaises(PermissionError):self.module().native({'action':'mutate'},SimpleNamespace(allow_live=True,allow_write=False))
+
+class FiniteParameterTests(unittest.TestCase):
+    crs='EPSG:32631'
+    def values(self):return (float('nan'),float('inf'),float('-inf'))
+    def test_road_cap_budget_rejects_all_nonfinite(self):
+        for value in self.values():
+            with self.subTest(value=value),self.assertRaises(ValueError):G.close_road_pair(LineString([(0,0),(100,0)]),LineString([(0,100),(100,100)]),crs=self.crs,max_cap_distance=value)
+    def test_buffer_finite_gate_preserves_negative_erosion(self):
+        self.assertEqual(G.buffer_m(box(0,0,10,10),-1,crs=self.crs).area,64)
+        for value in self.values():
+            with self.subTest(value=value),self.assertRaises(ValueError):G.buffer_m(box(0,0,10,10),value,crs=self.crs)
+    def test_extension_budget_nonfinite(self):
+        for value in self.values():
+            with self.subTest(value=value),self.assertRaises(ValueError):G.extend_endpoint(LineString([(0,0),(10,0)]),LineString([(15,-5),(15,5)]),crs=self.crs,max_distance=value)
+    def test_corridor_miter_and_step_nonfinite(self):
+        line=LineString([(0,0),(100,0)]);profile=[(0,10,20),(100,10,20)]
+        for name in ('miter_limit','sample_step'):
+            for value in self.values():
+                with self.subTest(name=name,value=value),self.assertRaises(ValueError):G.asymmetric_corridor(line,profile,crs=self.crs,**{name:value})
+        for value in (0,-1):
+            with self.assertRaises(ValueError):G.asymmetric_corridor(line,profile,crs=self.crs,sample_step=value)
+    def test_profile_all_numeric_fields_nonfinite(self):
+        for index in range(3):
+            for value in self.values():
+                profile=[[0,10,20],[100,10,20]];profile[0][index]=value
+                with self.subTest(index=index,value=value),self.assertRaises(ValueError):G.asymmetric_corridor(LineString([(0,0),(100,0)]),profile,crs=self.crs)
+    def test_geometry_nonfinite_including_z(self):
+        for value in self.values():
+            with self.subTest(value=value),self.assertRaises(ValueError):G.valid(Point(1,2,value))
+        with self.assertRaises(ValueError):G.reproject(Point(1e6,45),4326,self.crs)
+    def test_image_bounds_nonfinite_on_both_offline_paths(self):
+        image=Image.new('RGB',(10,10));line=LineString([(0,0),(1,0)])
+        for index in range(4):
+            for value in self.values():
+                bounds=[0.,-1.,2.,1.];bounds[index]=value
+                with self.subTest(index=index,value=value),self.assertRaises(ValueError):I.draw_overlay(image,[line],bounds,image_crs=self.crs,geometry_crs=self.crs)
+                with self.subTest(index=index,value=value),self.assertRaises(ValueError):I.unfold_line(image,bounds,line,image_crs=self.crs,line_crs=self.crs,left_m=1,right_m=1)
+    def test_unfold_all_numeric_budgets_nonfinite(self):
+        image=Image.new('RGB',(10,10));line=LineString([(0,0),(1,0)])
+        for name in ('left_m','right_m','step_m','cross_step_m','max_pixels'):
+            for value in self.values():
+                kwargs=dict(left_m=1,right_m=1);kwargs[name]=value
+                with self.subTest(name=name,value=value),self.assertRaises(ValueError):I.unfold_line(image,(0,-1,2,1),line,image_crs=self.crs,line_crs=self.crs,**kwargs)
+    def test_unfold_checks_budget_before_allocation(self):
+        with self.assertRaisesRegex(ValueError,'before allocation'):I.unfold_line(Image.new('RGB',(10,10)),(0,-1,100,1),LineString([(0,0),(100,0)]),image_crs=self.crs,line_crs=self.crs,left_m=1,right_m=1,step_m=1e-8,max_pixels=10)
+    def test_export_level_type_timeout_and_bounds_nonfinite(self):
+        with TemporaryDirectory() as tmp:
+            for name in ('level','map_type','timeout'):
+                for value in self.values():
+                    with self.subTest(name=name,value=value),self.assertRaises(ValueError):I.export_cached_map(MapTransport(),Path(tmp)/'unused.png',(0,0,1,1),**{name:value})
+            for index in range(4):
+                for value in self.values():
+                    bounds=[0.,0.,1.,1.];bounds[index]=value
+                    with self.subTest(index=index,value=value),self.assertRaises(ValueError):I.export_cached_map(MapTransport(),Path(tmp)/'unused.png',bounds)
+    def test_export_wrong_response_nan_extent_refused(self):
+        class NonfiniteResponse(MapTransport):
+            def request(self,cmd,data=b'',**options):
+                code,payload=super().request(cmd,data,**options)
+                if cmd==20302:
+                    rep=I.MapFile.from_buffer_copy(payload);rep.x1=float('nan');payload=bytes(rep)+payload[C.sizeof(I.MapFile):]
+                return code,payload
+        with TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):I.export_cached_map(NonfiniteResponse(),Path(tmp)/'unused.png',(0,0,1,1))
+            self.assertFalse((Path(tmp)/'unused.png').exists())
+    def test_cli_json_rejects_nan_infinity_and_overflow_numeric(self):
+        module=CliTests().module()
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'bad.json'
+            for value in ('NaN','Infinity','-Infinity','1e999','-1e999'):
+                path.write_text('{"distance":'+value+'}',encoding='utf-8')
+                with self.subTest(value=value),self.assertRaises(ValueError):module.load(path)
+    def test_native_style_all_numeric_fields_nonfinite(self):
+        for name in ('line','area','width','alpha','area_alpha','line_type','closed','outer_count'):
+            for value in self.values():
+                with self.subTest(name=name,value=value),self.assertRaises(ValueError):P.geometry_body('Synthetic',box(0,0,1,1),style={name:value})
+    def test_kml_resource_budget_nonfinite(self):
+        for value in self.values():
+            with self.subTest(value=value),self.assertRaises(ValueError):kml.read('never-opened.kml',max_xml_bytes=value)
+    def test_native_timeouts_ids_and_header_nonfinite(self):
+        from ovital.session import WinMessageTransport
+        for value in self.values():
+            for name in ('timeout','response_timeout'):
+                with self.subTest(name=name,value=value),self.assertRaises(ValueError):WinMessageTransport(**{name:value})
+            with self.assertRaises(ValueError):P.header(parent=value)
+            with self.assertRaises(ValueError):Favorites(MemoryTransport(),allowed_ids=[value])
+            with self.assertRaises(ValueError):Favorites(MemoryTransport()).walk(max_objects=value)
+    def test_save_wait_parameters_nonfinite(self):
+        for name in ('timeout','poll'):
+            for value in self.values():
+                with self.subTest(name=name,value=value),self.assertRaises(ValueError):save_and_verify(Favorites(MemoryTransport()),'never-opened',lambda:None,object_ids=[1],**{name:value})
 
 if __name__=='__main__':unittest.main(verbosity=2)

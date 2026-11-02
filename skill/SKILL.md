@@ -2,7 +2,7 @@
 name: ovital-local-automation
 description: 通过 Windows 奥维互动地图官方消息接口在后台读取和修改收藏夹、目录、轨迹及图形，导入导出 KML/KMZ，读取缓存地图影像，并用 Shapely/pyproj 完成道路封面、坐标变换、米制外扩、合并、裁切、差集和面积长度核验。用于奥维本地自动化与 GIS 几何处理；不把 ArcGIS 许可作为依赖，不自动接管前台或修改用户现场。
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # 奥维地图后台自动化

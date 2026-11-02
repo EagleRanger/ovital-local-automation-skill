@@ -2,7 +2,7 @@
 
 通过奥维互动地图的官方 Windows 消息接口，在不接管鼠标键盘的情况下处理本地收藏夹与 GIS 几何。附带实际 Python 执行代码，不是只列功能的提示词，也不依赖作者电脑上的私人项目。
 
-当前版本：**v1.0.0**。
+当前版本：**v1.0.1**。
 
 [下载 Skill ZIP](https://github.com/EagleRanger/ovital-local-automation-skill/releases/latest) · [AI 使用入口](skill/SKILL.md) · [配置与调用](skill/references/receiver-setup.md) · [GIS 自动化分区](https://github.com/EagleRanger/windows-app-automation-skills#gis-自动化)
 

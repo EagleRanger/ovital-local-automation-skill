@@ -4,6 +4,7 @@ import math
 import xml.etree.ElementTree as ET
 import zipfile
 from shapely.geometry import Point,LineString,Polygon,GeometryCollection,shape,mapping
+from .validation import finite_number
 
 K='http://www.opengis.net/kml/2.2';N={'k':K};ET.register_namespace('',K)
 
@@ -32,10 +33,43 @@ def _geometry(element):
         holes=[_coordinates(e) for e in element.findall('k:innerBoundaryIs/k:LinearRing/k:coordinates',N)]
         if any(r[0]!=r[-1] for r in [outer]+holes):raise ValueError('KML polygon rings must close explicitly')
         return Polygon(outer,holes)
-    if name=='MultiGeometry':return GeometryCollection([_geometry(e) for e in element if e.tag.split('}')[-1] in ('Point','LineString','LinearRing','Polygon','MultiGeometry')])
+    if name=='MultiGeometry':
+        # Every child is a geometry, not optional metadata. Never filter an
+        # unsupported Model/gx:Track away while retaining the supported part.
+        if not len(element):raise ValueError('empty MultiGeometry')
+        return GeometryCollection([_geometry(e) for e in element])
     raise ValueError('unsupported KML geometry: '+name)
 
+def _style_registry(elements):
+    registry={}
+    for element in elements:
+        identifier=element.get('id')
+        if not identifier:continue
+        if element.tag not in ('{'+K+'}Style','{'+K+'}StyleMap'):raise ValueError('unsupported style definition')
+        if identifier in registry and ET.tostring(registry[identifier])!=ET.tostring(element):raise ValueError('conflicting KML style IDs')
+        registry[identifier]=element
+    return registry
+
+def _style_references(element):
+    return [(node.text or '').strip() for node in element.findall('.//k:styleUrl',N)]
+
+def _style_closure(references,registry):
+    """Retain complete StyleMap chains (normal AND highlight); never flatten."""
+    found={};active=set()
+    def resolve(reference):
+        if not reference.startswith('#'):return  # External URL is retained, never fetched.
+        identifier=reference[1:]
+        if not identifier or identifier not in registry:raise ValueError('unresolved local KML styleUrl: '+reference)
+        if identifier in active:raise ValueError('cyclic KML style references')
+        if identifier in found:return
+        active.add(identifier);element=registry[identifier]
+        for nested in _style_references(element):resolve(nested)
+        active.remove(identifier);found[identifier]=ET.tostring(element,encoding='unicode')
+    for reference in references:resolve(reference)
+    return list(found.values())
+
 def read(path, *, max_xml_bytes=32*1024*1024):
+    max_xml_bytes=finite_number(max_xml_bytes,'KML XML byte budget',positive=True,integer=True)
     path=Path(path)
     if path.suffix.lower()=='.kmz':
         with zipfile.ZipFile(path) as archive:
@@ -51,19 +85,24 @@ def read(path, *, max_xml_bytes=32*1024*1024):
     scan=data.replace(b'\0',b'').upper()
     if b'<!DOCTYPE' in scan or b'<!ENTITY' in scan:raise ValueError('DTD/entity declarations are not accepted')
     root=ET.fromstring(data);features=[]
-    styles={e.get('id'):ET.tostring(e,encoding='unicode') for e in root.findall('.//k:Style',N) if e.get('id')}
+    styles=_style_registry(root.findall('.//k:Style',N)+root.findall('.//k:StyleMap',N))
     def visit(element,folders):
         typ=element.tag.split('}')[-1]
         if typ in ('NetworkLink','GroundOverlay','PhotoOverlay','ScreenOverlay'):raise ValueError('linked/overlay content is not local vector geometry; export it separately, no remote fetch is performed')
         if typ=='Folder':folders=folders+[element.findtext('k:name','',N)]
         if typ=='Placemark':
+            if any(e.tag.split('}')[-1] in ('Model','Track','MultiTrack') for e in element):raise ValueError('unsupported Placemark geometry; refusing partial import')
             geometries=[_geometry(e) for e in element if e.tag.split('}')[-1] in ('Point','LineString','LinearRing','Polygon','MultiGeometry')]
             if not geometries:raise ValueError('Placemark has no supported local geometry; refusing silent feature loss')
             geometry=geometries[0] if len(geometries)==1 else GeometryCollection(geometries)
             if not geometry.is_valid:raise ValueError('invalid KML geometry; no implicit repair')
-            inline=element.find('k:Style',N);url=element.findtext('k:styleUrl','',N)
-            style_xml=ET.tostring(inline,encoding='unicode') if inline is not None else styles.get(url.lstrip('#'))
-            features.append(dict(id=element.get('id'),name=element.findtext('k:name','',N),path=list(folders),description=element.findtext('k:description','',N),visibility=element.findtext('k:visibility','1',N),geometry=mapping(geometry),style_xml=style_xml,style_url=url,properties={e.get('name'):e.findtext('k:value','',N) for e in element.findall('k:ExtendedData/k:Data',N)}))
+            inline=[e for e in element if e.tag in ('{'+K+'}Style','{'+K+'}StyleMap')]
+            if len(inline)>1:raise ValueError('ambiguous inline KML style selector')
+            url=element.findtext('k:styleUrl','',N).strip();references=[url]
+            if inline:references+=_style_references(inline[0])
+            definitions=_style_closure(references,styles)
+            style_xml=ET.tostring(inline[0],encoding='unicode') if inline else None
+            features.append(dict(id=element.get('id'),name=element.findtext('k:name','',N),path=list(folders),description=element.findtext('k:description','',N),visibility=element.findtext('k:visibility','1',N),geometry=mapping(geometry),style_xml=style_xml,style_url=url,style_definitions=definitions,properties={e.get('name'):e.findtext('k:value','',N) for e in element.findall('k:ExtendedData/k:Data',N)}))
         else:
             for child in element:visit(child,folders)
     visit(root,[]);return features
@@ -89,6 +128,17 @@ def write(path,features, *, title='GIS export',overwrite=False):
     path=Path(path)
     if path.exists() and not overwrite:raise FileExistsError(path)
     root=ET.Element('{'+K+'}kml');doc=_child(root,'Document');_child(doc,'name',title);folders={():doc}
+    features=list(features)
+    definitions=_style_registry([ET.fromstring(xml) for feature in features for xml in feature.get('style_definitions',[])])
+    references=[]
+    for feature in features:
+        references.append(str(feature.get('style_url') or ''))
+        if feature.get('style_xml'):
+            inline=ET.fromstring(feature['style_xml'])
+            if inline.tag not in ('{'+K+'}Style','{'+K+'}StyleMap'):raise ValueError('unsupported inline style selector')
+            references+=_style_references(inline)
+    # Fail before opening output if user-supplied JSON contains dangling #refs.
+    for xml in _style_closure(references,definitions):doc.append(ET.fromstring(xml))
     for feature in features:
         key=()
         for part in feature.get('path',[]):
@@ -99,8 +149,8 @@ def write(path,features, *, title='GIS export',overwrite=False):
         if feature.get('id') is not None:placemark.set('id',str(feature['id']))
         for name in ('name','description','visibility'):
             if name in feature:_child(placemark,name,feature[name])
+        if feature.get('style_url'):_child(placemark,'styleUrl',feature['style_url'])
         if feature.get('style_xml'):placemark.append(ET.fromstring(feature['style_xml']))
-        elif feature.get('style_url'):_child(placemark,'styleUrl',feature['style_url'])
         data=_child(placemark,'ExtendedData')
         for name,value in feature.get('properties',{}).items():entry=_child(data,'Data');entry.set('name',str(name));_child(entry,'value',value)
         geometry=shape(feature['geometry'])

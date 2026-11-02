@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import struct
+from .validation import finite_number
 
 API_VERSION=103
 HEADER=struct.Struct('<HBBIIHBB')
@@ -39,7 +40,11 @@ class Group(C.LittleEndianStructure):
 STRUCTURES={8:Track,13:Shape,30:Group}
 
 def header(typ=0,parent=0,oid=0,coordinate_flag=1,position=0):
-    if not 0<=position<=65535:raise ValueError('position outside WORD range')
+    typ=finite_number(typ,'native object type',minimum=0,maximum=255,integer=True)
+    parent=finite_number(parent,'native parent ID',minimum=0,maximum=0xffffffff,integer=True)
+    oid=finite_number(oid,'native object ID',minimum=0,maximum=0xffffffff,integer=True)
+    coordinate_flag=finite_number(coordinate_flag,'coordinate flag',minimum=0,maximum=2,integer=True)
+    position=finite_number(position,'native position',minimum=0,maximum=65535,integer=True)
     return HEADER.pack(API_VERSION,typ,coordinate_flag,parent,oid,position,0,0)
 
 def parse_header(raw):
@@ -139,6 +144,8 @@ def geometry_body(name,geometry, *, comment='',style=None,coordinate_flag=1):
     if set(style)-set(limits)-{'closed','outer_count'}:raise ValueError('unsupported native style field')
     for key,limit in limits.items():
         if key in style and (type(style[key]) is not int or not 0<=style[key]<=limit):raise ValueError('native style value outside documented integer range: '+key)
+    if 'closed' in style and type(style['closed']) is not bool:raise ValueError('closed style flag must be boolean')
+    if 'outer_count' in style:finite_number(style['outer_count'],'native outer ring count',minimum=0,maximum=65535,integer=True)
     if coordinate_flag!=1:raise ValueError('only real-coordinate geographic output is supported')
     if geom.geom_type in ('LineString','MultiLineString'):
         typ=8;value=Track();parts=[list(g.coords) for g in (geom.geoms if geom.geom_type=='MultiLineString' else [geom])]

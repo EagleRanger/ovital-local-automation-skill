@@ -7,10 +7,11 @@ import struct
 import time
 from uuid import uuid4
 from . import protocol as P
+from .validation import finite_number
 
 class Favorites:
     def __init__(self,transport, *, allowed_ids=(),allowed_parents=(),backup_dir=None):
-        self.transport=transport;self.allowed_ids=set(allowed_ids);self.allowed_parents=set(allowed_parents);self.created=set();self.bound={}
+        self.transport=transport;self.allowed_ids={finite_number(value,'allowed object ID',positive=True,integer=True,maximum=0xffffffff) for value in allowed_ids};self.allowed_parents={finite_number(value,'allowed parent ID',positive=True,integer=True,maximum=0xffffffff) for value in allowed_parents};self.created=set();self.bound={}
         self.backup_dir=Path(backup_dir) if backup_dir else None
 
     def list(self,parent=1):
@@ -28,6 +29,7 @@ class Favorites:
         return raw
     def get(self,oid):return P.decode(self.get_raw(oid))
     def walk(self,root=1, *, max_objects=100000):
+        max_objects=finite_number(max_objects,'traversal object budget',positive=True,integer=True)
         nodes=[];seen={root}
         def visit(parent,path):
             for node in self.list(parent):
@@ -96,6 +98,7 @@ class Favorites:
         if P.semantic_signature(actual)!=P.semantic_signature(expected):raise ValueError('replacement readback mismatch')
         self.bound[oid]=P.stable_bytes(self.get_raw(oid));return dict(object=actual,backup=str(backup))
     def move(self,ids,parent, *, index=-1):
+        index=finite_number(index,'move index',minimum=-1,maximum=0x7fffffff,integer=True)
         ids=list(ids)
         if not ids or len(ids)!=len(set(ids)):raise ValueError('unique nonempty IDs required')
         self._parent(parent);before={oid:self._existing(oid) for oid in ids}
@@ -162,6 +165,8 @@ def save_and_verify(client,database,session_factory, *, object_ids,action=None,t
     Database hash changes alone are not proof. No change may mean already saved;
     this is disclosed, not automatically retried. No source database copied here.
     """
+    timeout=finite_number(timeout,'save timeout',minimum=0)
+    poll=finite_number(poll,'save poll interval',positive=True)
     if not getattr(client.transport,'allow_write',False):raise PermissionError('save requires explicit write authority')
     path=Path(database).resolve()
     if not path.is_file():raise ValueError('explicit current favorites database required')

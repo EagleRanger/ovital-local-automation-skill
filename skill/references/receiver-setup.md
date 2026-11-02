@@ -42,6 +42,8 @@ print(measure(expanded, crs="EPSG:32650"))
 
 这里的坐标、宽度、投影和偏移仅为合成样例，不是设计默认值。真实数据先确认 CRS 与物理基准，再选投影和参数。
 
+KML/KMZ保留支持的几何、目录和本地Style/StyleMap引用闭包（含normal/highlight）；未知几何（如Model）、混合未知成员、样式断链/循环/冲突均明确拒绝，不静默略过后输出残缺结果。KML输出采用其经纬度约定，不能直接写投影平面坐标。
+
 原生调用先读 [后台操作边界](native-workflow.md)。默认 `WinMessageTransport(allow_write=False)`；只在当前用户明确授权目标后，才启用写传输并给 `Favorites` 配置明确的 `allowed_ids`、`allowed_parents`、`backup_dir`。不要为了“装好验证”创建试验收藏夹。
 
 ## CLI

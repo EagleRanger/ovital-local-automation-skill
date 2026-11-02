@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "kind": "source-integrity-only",
   "files": [
     {
@@ -19,8 +19,8 @@
     },
     {
       "path": "references/receiver-setup.md",
-      "bytes": 4548,
-      "sha256": "04172ff7c4d2d77dd6e175d9e454e217f2f787a8a249b7ae1805d29a4aee01c9"
+      "bytes": 4855,
+      "sha256": "8b49dc5c50aabbfc03170c6ca1aa4359fd474abbde9044091853e8fd0a3277e0"
     },
     {
       "path": "requirements.txt",
@@ -34,48 +34,53 @@
     },
     {
       "path": "scripts/ovital/favorites.py",
-      "bytes": 12514,
-      "sha256": "cf8ef87274cdbcbc37cbd9ccac9c63321640787ea5ef8000bed1ab443afb5058"
+      "bytes": 13061,
+      "sha256": "623fc99d9532e2fd2062992d46cce68754bde20c94efda44c6523da4e5cb8625"
     },
     {
       "path": "scripts/ovital/geometry.py",
-      "bytes": 9563,
-      "sha256": "cc262660a608bdd7581acc46dc8ab52dd127cf23b3c1752cc7a2112d08cbefd6"
+      "bytes": 10786,
+      "sha256": "b4ecb42c5a4b3157c9515734ae1e468763ce7f883454d72c51843c9ee0809e68"
     },
     {
       "path": "scripts/ovital/imagery.py",
-      "bytes": 9273,
-      "sha256": "b1410f0328e3930c1084de6058c62b14368c0e07dc13f98b4ee7fc35d422a2dc"
+      "bytes": 10786,
+      "sha256": "3221bcf6d9fac3984e19fbe242b02de43726abb3a772a3af8bed6e64d691cb15"
     },
     {
       "path": "scripts/ovital/kml.py",
-      "bytes": 7561,
-      "sha256": "a250d1d95e6fc27063be8aa47ba602aab928a62dca32bcd6b86412f7579cf979"
+      "bytes": 10372,
+      "sha256": "9a867acc456e992acb64f5f1d8a29db2bbd63683a1a7e844ad95f3cb9d6f109b"
     },
     {
       "path": "scripts/ovital/protocol.py",
-      "bytes": 11059,
-      "sha256": "03df5e5e2316db6a673bc989313854a8b7b9071494625f2705bd02b7264163b2"
+      "bytes": 11724,
+      "sha256": "1139263ee786c82c2bab5d93dcdbe2086ef44ea00fd0acbb2b9fe956c16c1a8b"
     },
     {
       "path": "scripts/ovital/session.py",
-      "bytes": 6625,
-      "sha256": "f41ffda91a417778e698932c57e66e361d2e67f4c71a210cbb6d40502ba3720e"
+      "bytes": 7147,
+      "sha256": "b66ccfa33e21035586141f9e949ed117bec1233a122ff3dd290892a79d5d7d19"
+    },
+    {
+      "path": "scripts/ovital/validation.py",
+      "bytes": 1641,
+      "sha256": "1d210363ad4f1302225425cb0174439b1670c963257a3f71c30fea42e4892e2c"
     },
     {
       "path": "scripts/ovital_tool.py",
-      "bytes": 7733,
-      "sha256": "85b47156a0e2cb7f562c842360b9bfc4eef72905cf018c8a020ed260b9592bd9"
+      "bytes": 8085,
+      "sha256": "2d204bdaeb38ea538b6dc66b3131a4d3a00474ae94de1ab43ea1415c50a17d3a"
     },
     {
       "path": "SKILL.md",
       "bytes": 3388,
-      "sha256": "e45cee729906b20286a8cfded8128a385e177914f7113896187a80194eab25b6"
+      "sha256": "734944c6f8311f7b122609786f558dddb506bd90a3aef0a04696adf1099e4ea8"
     },
     {
       "path": "tests/test_offline.py",
-      "bytes": 20324,
-      "sha256": "0f1b1e0a9af8d361534ac9e1f4aad5c65c76552a18ef55a2238de0655c432832"
+      "bytes": 30331,
+      "sha256": "283eeda30e5e92463b191ee6b7a860ddb5dc166013d77ad72224f76e67e32800"
     }
   ]
 }

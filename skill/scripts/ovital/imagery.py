@@ -11,7 +11,8 @@ from uuid import uuid4
 from PIL import Image,ImageDraw
 from pyproj import Transformer
 from .protocol import header
-from .geometry import reproject,require_metric
+from .geometry import reproject,require_metric,valid
+from .validation import finite_number,finite_bounds
 
 class MapInfo(C.LittleEndianStructure):
     _pack_=8
@@ -31,6 +32,8 @@ def map_info(transport):
     if len(payload)!=C.sizeof(MapInfo):raise ValueError('unexpected map-info ABI size')
     result=MapInfo.from_buffer_copy(payload)
     if result.retcode<0:raise RuntimeError('map-info rejected')
+    for name in ('lng','lat','x','y'):finite_number(getattr(result,name),'map-info '+name)
+    for name in ('level','maptype'):finite_number(getattr(result,name),'map-info '+name,positive=True,integer=True,maximum=0x7fffffff)
     # Preserve both coordinate groups and flags: SDK bReal2 controls x/y, not
     # necessarily the primary lng/lat pair. Never relabel GCJ02 as CGCS2000.
     return {key:getattr(result,key) for key in ('lng','lat','real','x','y','real2','level','maptype','image')}
@@ -41,18 +44,24 @@ def screen_bounds(transport):
     if len(payload)!=C.sizeof(ScreenBounds):raise ValueError('unexpected screen-bounds ABI size')
     result=ScreenBounds.from_buffer_copy(payload)
     if result.real!=1:raise ValueError('requested CGCS2000 geographic screen bounds were not returned')
+    finite_bounds((result.west,result.south,result.east,result.north),geographic=True)
+    for name in ('level','maptype'):finite_number(getattr(result,name),'screen '+name,positive=True,integer=True,maximum=0x7fffffff)
     return {key:getattr(result,key) for key in ('west','south','east','north','level','maptype','real')}
 
 def export_cached_map(transport,path,bounds, *, level=None,map_type=None,timeout=30.):
     """Bounds=(west,south,east,north), API real=1 geographic. No map navigation."""
     path=Path(path).resolve()
     if path.exists():raise FileExistsError('map export never overwrites an existing file')
-    west,south,east,north=map(float,bounds)
-    if not (-180<=west<east<=180 and -90<=south<north<=90):raise ValueError('valid geographic extent required; split dateline exports')
+    west,south,east,north=finite_bounds(bounds,geographic=True)
+    timeout=finite_number(timeout,'map response timeout',positive=True)
+    if level is not None:level=finite_number(level,'map level',positive=True,integer=True,maximum=0x7fffffff)
+    if map_type is not None:map_type=finite_number(map_type,'map type',positive=True,integer=True,maximum=0x7fffffff)
     if level is None or map_type is None:
         current=map_info(transport)
         if level is None:level=current['level']
         if map_type is None:map_type=current['maptype']
+    level=finite_number(level,'map level',positive=True,integer=True,maximum=0x7fffffff)
+    map_type=finite_number(map_type,'map type',positive=True,integer=True,maximum=0x7fffffff)
     encoded=str(path).encode('utf-8')
     if len(encoded)>=256:raise ValueError('API filename must be under 256 UTF-8 bytes')
     path.parent.mkdir(parents=True,exist_ok=True)
@@ -68,6 +77,7 @@ def export_cached_map(transport,path,bounds, *, level=None,map_type=None,timeout
     rep,offset=candidates[0]
     if rep.retcode<0 or rep.total<=0 or rep.has!=rep.total or not rep.width or not rep.height:raise RuntimeError('cached imagery incomplete/rejected; no download or automatic retry')
     if rep.real!=req.real or rep.level!=req.level or rep.maptype!=req.maptype:raise ValueError('map response CRS/source/level mismatch')
+    finite_bounds((rep.x1,rep.y2,rep.x2,rep.y1),geographic=True)
     if any(abs(getattr(rep,key)-getattr(req,key))>1e-9 for key in ('x1','y1','x2','y2')):raise ValueError('map response extent differs from requested georeferencing')
     if rep.bfile:
         response_file=bytes(rep.file).split(b'\0',1)[0].decode('utf-8')
@@ -83,8 +93,8 @@ def export_cached_map(transport,path,bounds, *, level=None,map_type=None,timeout
 
 def draw_overlay(image,geometries,bounds, *, image_crs,geometry_crs,color=(255,0,255),width=2):
     """Return a copy. bounds are exact image CRS extent, not a guessed screenshot."""
-    image=image.copy().convert('RGB');draw=ImageDraw.Draw(image);west,south,east,north=bounds
-    if not west<east or not south<north:raise ValueError('positive image extent required')
+    west,south,east,north=finite_bounds(bounds);width=finite_number(width,'overlay width',positive=True,integer=True)
+    image=image.copy().convert('RGB');draw=ImageDraw.Draw(image)
     def pixel(point):return ((point[0]-west)/(east-west)*(image.width-1),(north-point[1])/(north-south)*(image.height-1))
     def render(geometry):
         if geometry.geom_type=='Point':
@@ -106,16 +116,22 @@ def unfold_line(image,bounds,line, *, image_crs,line_crs,left_m,right_m,step_m=1
     Result is an inspection aid, not resampled survey-quality imagery.
     """
     import numpy as np
-    require_metric(line_crs)
-    if line.geom_type!='LineString' or line.has_z or line.length<=0 or min(step_m,cross_step_m)<=0 or min(left_m,right_m)<0:raise ValueError('valid 2D metric line, explicit positive sampling and nonnegative widths required')
-    stations=np.linspace(0,line.length,max(2,int(math.ceil(line.length/step_m))+1));distances=np.arange(left_m,-right_m-cross_step_m*.5,-cross_step_m)
-    if len(stations)*len(distances)>max_pixels:raise ValueError('strip pixel budget exceeded')
+    require_metric(line_crs);valid(line);west,south,east,north=finite_bounds(bounds)
+    left_m=finite_number(left_m,'left strip width',minimum=0);right_m=finite_number(right_m,'right strip width',minimum=0)
+    step_m=finite_number(step_m,'along-line sample step',positive=True);cross_step_m=finite_number(cross_step_m,'cross-line sample step',positive=True)
+    max_pixels=finite_number(max_pixels,'strip pixel budget',positive=True,integer=True)
+    if line.geom_type!='LineString' or line.has_z or line.length<=0:raise ValueError('valid 2D metric line required')
+    along=finite_number(line.length/step_m,'along-line sample count',positive=True)
+    cross=finite_number((left_m+right_m+cross_step_m*.5)/cross_step_m,'cross-line sample count',positive=True)
+    station_count=max(2,int(math.ceil(along))+1);cross_count=int(math.ceil(cross))
+    if station_count*cross_count>max_pixels:raise ValueError('strip pixel budget exceeded before allocation')
+    stations=np.linspace(0,line.length,station_count);distances=np.arange(left_m,-right_m-cross_step_m*.5,-cross_step_m)
     q=np.array([line.interpolate(float(s)).coords[0] for s in stations]);epsilon=min(step_m,1.)
     tangent=np.array([np.array(line.interpolate(min(line.length,float(s)+epsilon)).coords[0])-np.array(line.interpolate(max(0.,float(s)-epsilon)).coords[0]) for s in stations]);norm=np.hypot(*tangent.T)
     if (norm<1e-12).any():raise ValueError('undefined line direction')
     nx=-tangent[:,1]/norm;ny=tangent[:,0]/norm;x=q[None,:,0]+distances[:,None]*nx;y=q[None,:,1]+distances[:,None]*ny
-    xx,yy=Transformer.from_crs(line_crs,image_crs,always_xy=True).transform(x,y);west,south,east,north=bounds
-    if not west<east or not south<north:raise ValueError('positive image extent required')
+    xx,yy=Transformer.from_crs(line_crs,image_crs,always_xy=True).transform(x,y)
+    if not np.isfinite(xx).all() or not np.isfinite(yy).all():raise ValueError('non-finite transformed image coordinates')
     source=np.asarray(image.convert('RGB'));px=np.rint((xx-west)/(east-west)*(image.width-1)).astype(int);py=np.rint((north-yy)/(north-south)*(image.height-1)).astype(int)
     inside=(px>=0)&(px<image.width)&(py>=0)&(py<image.height);out=np.zeros((*px.shape,3),dtype=np.uint8);out[:]=(255,0,255);out[inside]=source[py[inside],px[inside]]
     return Image.fromarray(out),dict(stations_m=stations.tolist(),cross_offsets_m=distances.tolist(),orientation='top=travel-left; bottom=travel-right',outside_samples=int((~inside).sum()),precision='visual interpretation aid, not survey measurement')

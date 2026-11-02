@@ -8,12 +8,17 @@ import os
 import struct
 import time
 from uuid import uuid4
+from .validation import finite_number
 
 READ_COMMANDS={20006,20012,20016,20100,20101,20801,20802,20302}
 WRITE_COMMANDS={20102,20103,20108}
 
 class WinMessageTransport:
     def __init__(self, *, hwnd=None, expected_pid=None, allow_write=False,timeout=5.,response_timeout=10.):
+        timeout=finite_number(timeout,'message timeout',positive=True)
+        response_timeout=finite_number(response_timeout,'callback timeout',positive=True)
+        if hwnd is not None:hwnd=finite_number(hwnd,'window handle',positive=True,integer=True,maximum=0xffffffffffffffff)
+        if expected_pid is not None:expected_pid=finite_number(expected_pid,'process ID',positive=True,integer=True,maximum=0xffffffff)
         if os.name!='nt':raise OSError('Ovital native messages require Windows')
         if C.sizeof(C.c_void_p)!=8:raise OSError('this extracted adapter requires 64-bit Python; verify application API/ABI separately')
         from ctypes import wintypes as W
@@ -62,6 +67,7 @@ class WinMessageTransport:
             self.close();raise
 
     def request(self,cmd,data=b'', *, expect_response=True,response_timeout=None):
+        wait=finite_number(self.response_timeout if response_timeout is None else response_timeout,'callback timeout',positive=True)
         if cmd!=20000 and cmd not in READ_COMMANDS|WRITE_COMMANDS:raise ValueError('command not exposed by this adapter')
         if cmd in WRITE_COMMANDS and not self.allow_write:raise PermissionError('transport is read-only')
         if cmd==20000 and self.app_id:raise PermissionError('registration cannot be replayed')
@@ -75,7 +81,7 @@ class WinMessageTransport:
             if -100<=signed<=0:raise RuntimeError('set object rejected: '+str(signed))
         elif signed<0:raise RuntimeError('Ovital rejected command '+str(cmd)+': '+str(signed))
         if not expect_response:return signed,None
-        until=time.monotonic()+(self.response_timeout if response_timeout is None else response_timeout);msg=self.W.MSG()
+        until=time.monotonic()+wait;msg=self.W.MSG()
         while time.monotonic()<until:
             found=[payload for command,payload in self.received[start:] if command==cmd]
             if found:return signed,found[-1]
