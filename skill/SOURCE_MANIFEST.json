@@ -1,0 +1,81 @@
+{
+  "version": "1.0.0",
+  "kind": "source-integrity-only",
+  "files": [
+    {
+      "path": "examples/synthetic-road.json",
+      "bytes": 229,
+      "sha256": "2c7f1bfc168c6d80969e0f64c52040838f8de6491395845ea81b480a833c7e43"
+    },
+    {
+      "path": "references/geometry-lessons.md",
+      "bytes": 2556,
+      "sha256": "b508e925dd20d84e1c726e592fadb244b539987294452dfd8c542eb8a62f2f5f"
+    },
+    {
+      "path": "references/native-workflow.md",
+      "bytes": 3050,
+      "sha256": "10ca6d09cc57087a5520e2644c8551459822046b3906ccea1a229a4d0338d066"
+    },
+    {
+      "path": "references/receiver-setup.md",
+      "bytes": 4548,
+      "sha256": "04172ff7c4d2d77dd6e175d9e454e217f2f787a8a249b7ae1805d29a4aee01c9"
+    },
+    {
+      "path": "requirements.txt",
+      "bytes": 169,
+      "sha256": "7a138fb83fe6b6b0d3b9212bb13dc630d214aaede01809ee81abdae10f0d79ef"
+    },
+    {
+      "path": "scripts/ovital/__init__.py",
+      "bytes": 103,
+      "sha256": "31a7c9dc7e55829ed3043677b6484e439a7d03ca6477bcb60c3b29d489a083d0"
+    },
+    {
+      "path": "scripts/ovital/favorites.py",
+      "bytes": 12514,
+      "sha256": "cf8ef87274cdbcbc37cbd9ccac9c63321640787ea5ef8000bed1ab443afb5058"
+    },
+    {
+      "path": "scripts/ovital/geometry.py",
+      "bytes": 9563,
+      "sha256": "cc262660a608bdd7581acc46dc8ab52dd127cf23b3c1752cc7a2112d08cbefd6"
+    },
+    {
+      "path": "scripts/ovital/imagery.py",
+      "bytes": 9273,
+      "sha256": "b1410f0328e3930c1084de6058c62b14368c0e07dc13f98b4ee7fc35d422a2dc"
+    },
+    {
+      "path": "scripts/ovital/kml.py",
+      "bytes": 7561,
+      "sha256": "a250d1d95e6fc27063be8aa47ba602aab928a62dca32bcd6b86412f7579cf979"
+    },
+    {
+      "path": "scripts/ovital/protocol.py",
+      "bytes": 11059,
+      "sha256": "03df5e5e2316db6a673bc989313854a8b7b9071494625f2705bd02b7264163b2"
+    },
+    {
+      "path": "scripts/ovital/session.py",
+      "bytes": 6625,
+      "sha256": "f41ffda91a417778e698932c57e66e361d2e67f4c71a210cbb6d40502ba3720e"
+    },
+    {
+      "path": "scripts/ovital_tool.py",
+      "bytes": 7733,
+      "sha256": "85b47156a0e2cb7f562c842360b9bfc4eef72905cf018c8a020ed260b9592bd9"
+    },
+    {
+      "path": "SKILL.md",
+      "bytes": 3388,
+      "sha256": "e45cee729906b20286a8cfded8128a385e177914f7113896187a80194eab25b6"
+    },
+    {
+      "path": "tests/test_offline.py",
+      "bytes": 20324,
+      "sha256": "0f1b1e0a9af8d361534ac9e1f4aad5c65c76552a18ef55a2238de0655c432832"
+    }
+  ]
+}

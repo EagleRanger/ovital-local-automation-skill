@@ -1,0 +1,9 @@
+{
+  "operation": "road-pair",
+  "crs": "EPSG:32650",
+  "max_cap_distance_m": 5,
+  "geometries": [
+    {"type": "LineString", "coordinates": [[0, 0], [100, 0]]},
+    {"type": "LineString", "coordinates": [[0, 4], [100, 4]]}
+  ]
+}

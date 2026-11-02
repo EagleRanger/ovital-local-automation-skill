@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+outputs/
+*.local.json
+*.kml
+*.kmz
+*.sdb
+*.db
+*.png
+*.jpg
+*.log
